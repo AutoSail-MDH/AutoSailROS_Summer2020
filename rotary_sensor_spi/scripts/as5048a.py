@@ -8,14 +8,6 @@ import math
 import threading
 
 
-class ParityMismatchException(Exception):
-    pass
-
-
-class ErrorFlagException(Exception):
-    pass
-
-
 class AS5048A:
 
     ADDR_NOP = 0x0000
@@ -25,9 +17,12 @@ class AS5048A:
     ADDR_ZERO_POSITION_LO = 0x0017
     ADDR_DIAGNOSTICS = 0x3FFD
 
-    def __init__(self):
+    is_error = 0
+    is_parity_mismatch = 0
+
+    def __init__(self, spi):
         rospy.loginfo('Opening SPI connection for AS5048A')
-        self.spi = SPI("/dev/spidev0.0", 1, 1000000)
+        self.spi = spi
 
     def __del__(self):
         rospy.loginfo('Closing SPI connection for AS5048A')
@@ -36,12 +31,13 @@ class AS5048A:
     @staticmethod
     def check_parity_error(response):
         """
-        Check the response message if the parity is wrong or not
+        Compares a response's parity bit with a calculated one from the rest of the bits of the response.
+        Returns true when a mismatch is detected.
 
-        @param response: The 16bit address response
-        @type response: 16bit number
-        @return: True if parity is wrong, else false
-        @rtype: boolean
+        :param response: A 16bit address response value
+        :type response: 16bit Int
+        :return: True if given parity is a mismatch to the calculated one, else false
+        :rtype: Boolean
         """
         given_parity = response >> 15
         real_parity = AS5048A.calc_even_parity(response & 0x7fff)
@@ -50,25 +46,25 @@ class AS5048A:
     @staticmethod
     def check_error_flag(response):
         """
-        Returns a boolean depending on if the error flag is set
+        Extracts the error flag bit (14th bit) and returns it.
 
-        @param response: The 16bit address response
-        @type response: 16bit number
-        @return: True if error flag is set, else false
-        @rtype: boolean
+        :param response: A 16bit address response value
+        :type response: 16bit Int
+        :return: True if error flag is set, else false
+        :rtype: Boolean
         """
-        return (response >> 14) & 0x1
+        return ((response >> 14) & 0x1) == 1
 
     @staticmethod
     def calc_even_parity(addr):
         """
-        Return 1 or 0 depending on if the given address is even or not.
-        Used to calculate the even parity
+        Performs a XOR calculation to determine if the given 15bit address is even or not.
+        Return 0 if the address has even bits, else 1.
 
-        @param addr: Address to check
-        @type addr: 16bit number
-        @return: 1 if even, else 0
-        @rtype: number boolean
+        :param addr: A 15bit address value
+        :type addr: 15bit Int
+        :return: 0 if even, else 1
+        :rtype: Int Boolean
         """
         for i in [8, 4, 2, 1]:
             addr ^= addr >> i
@@ -77,76 +73,70 @@ class AS5048A:
     @staticmethod
     def calc_angle(value):
         """
-        Calculates the angle in radians with atan2 which makes the angle between [180, -180] and then returns it
+        Converts the given 13bit angle value to radians (0-2pi).
 
-        @param value: 14 bit angle value
-        @type value: 16bit number
-        @return: Angle in radians between [180, -180]
-        @rtype: number
+        :param value: 14bit angle value
+        :type value: 14bit Int
+        :return: Angle in radians between [0, 2pi]
+        :rtype: Float
         """
-        rad = value * (math.pi / 0x2000)
-        return math.atan2(math.sin(rad), math.cos(rad)) * 180 / math.pi
+        return value * (math.pi / 0x2000)
 
     def transfer(self, addr):
         """
-        Sends an address and received the response from previous transfer.
-        Returns the response.
+        Adds a even parity bit on the given 15bit address. Sends the package as a 16bit address, and received a
+        response from the previous transfer.
+        If the response contains one of the following errors; error flag set, and parity mismatch,
+        it will raise an error.
 
-        @param addr: Address to send
-        @type addr: 16bit number
-        @return: The bits received
-        @rtype: 16bit number
+        :param addr: 15bit Address to send
+        :type addr: 15bit Int
+        :return: The 14bit data received
+        :rtype: 14bit Int
         """
+        # Prepare package
         addr |= self.calc_even_parity(addr) << 15  # Set parity at the 16th bit
-        to_send = [(addr >> 8) & 0xff, addr & 0xff]  # Split bytes into list
-        rospy.logdebug('Sending [0x{:02x}, 0x{:02x}]'.format(*to_send))
+        to_send = [(addr >> 8) & 0xff, addr & 0xff]  # Split the two bytes into an array
+        # Send & receive package
         response = self.spi.transfer(to_send)
-        rospy.logdebug('Received [0x{:02x}, 0x{:02x}]'.format(*response))
+        rospy.logdebug('Sent: [0x{:02x}, 0x{:02x}], Received: [0x{:02x}, 0x{:02x}]'.format(*(to_send + response)))
         r = (response[0] << 8) | response[1]  # Concatenate the bytes
-
-        # Verify parity and check error flag, raise exception if an error is detected
+        # Verify parity and check error flag, set error to the corresponding value
         if self.check_error_flag(r):
-            raise ErrorFlagException('Error flag set')
-        elif self.check_parity_error(r):
-            raise ParityMismatchException('Parity bit mismatch')
-        return r
+            self.is_error = 1
+        if self.check_parity_error(r):
+            self.is_parity_mismatch = 1
+        return r & 0x3fff  # Strip the parity and error bit and return only the data
 
     def read(self, addr):
         """
-        Prepares the given address by setting the read bit to 1.
-        Transfers the prepared package, received the response and check it for error.
+        Prepares the given address by setting the read bit (14th bit) to 1. Pass it to
+        the transfer function to send it, and receives the data bits.
 
-        @param addr: The 14bit address to send
-        @type addr: 14bit number
-        @return: The 14bit data value from the response
-        @rtype: 14bit number
+        :param addr: The 14bit address to send
+        :type addr: 14bit Int
+        :return: The 14bit data value from the response
+        :rtype: 14bit Int
         """
         addr |= 0x4000  # Apply read bit to address
         # Transfer the read address and then a NOP to get the result of the previous read.
-        try:
-            self.transfer(addr)
-            result = self.transfer(self.ADDR_NOP)
-        except (ParityMismatchException, ErrorFlagException) as err:
-            raise
-        value = result & 0x3fff  # Extract data
-        return value
+        self.transfer(addr)
+        result = self.transfer(self.ADDR_NOP)
+        return result
 
     def write(self, addr, data):
         """
-        Send address as a write command, skip the first response. Send the data and receive the old register,
-        and finally send a NOP package to receive the new register.
+        Send address as a write command (14th bit set to 0), skip the first response. Sends the data and receive
+        the old register, and finally sends a NOP package to receive the new register.
 
-        @param addr: The 14bit address to send
-        @type addr: 14bit number
-        @param data: Data bits to write
-        @type data: number
-        @return: The old and the new register as an dictionary
-        @rtype: dictionary
+        :param addr: The 14bit address to send
+        :type addr: 14bit Int
+        :param data: Data (14bit) to write
+        :type data: Int
+        :return: A dict with 'old_register' and 'new_register' values
+        :rtype: Dict
         """
-        try:
-            self.transfer(addr)
-        except (ParityMismatchException, ErrorFlagException) as err:
-            raise
+        self.transfer(addr)
         # First transfer will return the old register, and the second the new register
         old_register = self.transfer(data)
         new_register = self.transfer(self.ADDR_NOP)
@@ -154,39 +144,24 @@ class AS5048A:
 
     def read_angle(self):
         """
-        Send the angle address as a read, return the response by calculating the angle.
-        If the transfer fails, it will try to clear the error and resend
+        Sends the angle address as a read, returns the angle in rad of the result.
 
-        @return: The angle in degrees
-        @rtype: number
+        :return: The angle in radians
+        :rtype: Float
         """
         addr = self.ADDR_ANGLE
-        # Tries to resend if an exception is caught
-        for tries in range(0, 2):
-            try:
-                value = self.read(addr)
-            except (ParityMismatchException, ErrorFlagException) as err:
-                rospy.logerr(err)
-                rospy.loginfo('Retrying...')
-                errors = self.clear_error()  # Clear errors before retrying
-                if any(errors.values()):
-                    rospy.loginfo('Clear Error; Parity Error {parity_error}, Command Invalid {command_invalid}, Framing Error {framing_error}'.format(**errors))
-                # Pass on the exception if the retry failed also, else continue
-                if tries == 1:
-                    raise
-                else:
-                    continue
-            else:
-                break
+        value = self.read(addr)
         return self.calc_angle(value)
 
-    def clear_error(self):
+    def clear_and_get_error(self):
         """
-        Send a clear error signal and receive what kind of error was lit.
+        Send a clear error signal and receive what kind of error was set.
 
-        @return: A dictionary containing the different type of errors
-        @rtype: dictionary
+        :return: A dictionary containing the different type of errors
+        :rtype: Dict
         """
+        self.is_error = 0
+        self.is_parity_mismatch = 0
         addr = self.ADDR_CLEAR_ERROR_FLAG
         response = self.read(addr)
         # Extract error bits
@@ -199,6 +174,9 @@ class AS5048A:
         """
         Write a new zero position by sending both high and low bits. Received a response containing
         both old and new register.
+
+        :return: A dictionary containing the 'old_zero_position' and 'new_zero_position' value
+        :rtype: Dict
         """
         response = self.read(self.ADDR_ANGLE)
         response_old_hi = self.read(self.ADDR_ZERO_POSITION_HI)
@@ -228,8 +206,8 @@ class AS5048A:
             - ocf: Bit is set when the Offset Compensation Algorithm has finished. Always high after power up
             - agc_val: Represents the magnetic field value where 0 is high and 255 is low
 
-        @return: The diagnostics
-        @rtype: dictionary
+        :return: The diagnostics
+        :rtype: Dict
         """
         addr = self.ADDR_DIAGNOSTICS
         response = self.read(addr)
@@ -246,11 +224,23 @@ def handle_write_zero_position(req):
     """
     A handle for the service to be able to handle write_zero_position
 
-    @param req: The requester object which contains the input from the user
-    @type req: object
+    :param req: The requester object which contains the input from the user
+    :type req: object
     """
     lock.acquire()
     response = as5048a.write_zero_position()
+    if as5048a.is_error:
+        errors = as5048a.clear_and_get_error()
+        lock.release()
+        message = """Failed to write zero position, the following errors were encountered:
+        Parity error: {}
+        Command invalid: {}
+        Framing error: {}""".format(**errors)
+        return TriggerResponse(False, message)
+    if as5048a.is_parity_mismatch:
+        lock.release()
+        message = "Failed to write zero position, the received package has a mismatched parity"
+        return TriggerResponse(False, message)
     lock.release()
     old = AS5048A.calc_angle(response['old_zero_position'])
     new = AS5048A.calc_angle(response['new_zero_position'])
@@ -264,11 +254,23 @@ def handle_read_diagnostics(req):
     """
     A handle for the service to be able to handle read_diagnostics
 
-    @param req: The requester object which contains the input from the user
-    @type req: object
+    :param req: The requester object which contains the input from the user
+    :type req: Object
     """
     lock.acquire()
     response = as5048a.read_diagnostics()
+    if as5048a.is_error:
+        errors = as5048a.clear_and_get_error()
+        lock.release()
+        message = """Failed to read diagnostics, the following errors were encountered:
+        Parity error: {}
+        Command invalid: {}
+        Framing error: {}""".format(**errors)
+        return TriggerResponse(False, message)
+    if as5048a.is_parity_mismatch:
+        lock.release()
+        message = "Failed to read diagnostics, the received package has a mismatched parity"
+        return TriggerResponse(False, message)
     lock.release()
     message = """Diagnostics and Automatic Gain Control (AGC)
     Comp High: {comp_hi}
@@ -282,7 +284,8 @@ def handle_read_diagnostics(req):
 if __name__ == "__main__":
     lock = threading.Lock()
 
-    as5048a = AS5048A()
+    spi = SPI("/dev/spidev0.0", 1, 1000000)
+    as5048a = AS5048A(spi)
     # Setup ROS
     rospy.init_node('as5048a', anonymous=False)
     pub = rospy.Publisher('angle', Float32, queue_size=10)
