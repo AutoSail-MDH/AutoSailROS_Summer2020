@@ -14,6 +14,7 @@ class AS5048A:
     ADDR_ZERO_POSITION_HI = 0x0016
     ADDR_ZERO_POSITION_LO = 0x0017
     ADDR_DIAGNOSTICS = 0x3FFD
+    ADDR_MAGNITUDE = 0x3FFE
 
     is_error = 0
     is_parity_mismatch = 0
@@ -149,6 +150,9 @@ class AS5048A:
         addr = self.ADDR_ANGLE
         value = self.read(addr)
         return self.calc_angle(value)
+
+    def read_cordic_magnitude(self):
+        return self.read(self.ADDR_MAGNITUDE)
 
     def clear_and_get_error(self):
         """
