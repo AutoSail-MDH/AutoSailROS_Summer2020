@@ -209,5 +209,5 @@ catkin_install_python(PROGRAMS
 
 if(CATKIN_ENABLE_TESTING)
     find_package(rostest REQUIRED)
-    add_rostest(test/as5048_node_test.test)
+    add_rostest(test/as5048.test)
 endif()
