@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-from unittest import TestCase, main, mock
+from unittest import TestCase, mock
 from unittest.mock import call
 import math
+from rotary_sensor_spi.as5048a import AS5048A
 
-from rotary_sensor_spi.scripts.as5048a import AS5048A
-
+PKG = 'rotary_sensor_spi'
+NAME = 'test_as5048'
 
 class TestAS5048A(TestCase):
     def test_check_parity_error(self):
@@ -44,7 +45,7 @@ class TestAS5048A(TestCase):
         self.assertEqual(AS5048A.calc_angle(0x3000), math.pi*3/2)
         self.assertEqual(AS5048A.calc_angle(0x4000), 2 * math.pi)
 
-    @mock.patch('rotary_sensor_spi.scripts.as5048a.SPI')
+    @mock.patch('rotary_sensor_spi.as5048a.SPI')
     def test_read(self, mock_spi):
         as5048 = AS5048A(mock_spi)
         # Check so read bit is set
@@ -71,7 +72,7 @@ class TestAS5048A(TestCase):
         self.assertFalse(as5048.is_error, 'Error is set')
         self.assertFalse(as5048.is_parity_mismatch, 'Parity mismatch')
 
-    @mock.patch('rotary_sensor_spi.scripts.as5048a.SPI')
+    @mock.patch('rotary_sensor_spi.as5048a.SPI')
     def test_write(self, mock_spi):
         as5048 = AS5048A(mock_spi)
         # Test default operation of write without any errors
@@ -88,7 +89,7 @@ class TestAS5048A(TestCase):
         self.assertFalse(as5048.is_parity_mismatch, 'Parity mismatch')
 
 
-    @mock.patch('rotary_sensor_spi.scripts.as5048a.SPI')
+    @mock.patch('rotary_sensor_spi.as5048a.SPI')
     def test_transfer_and_clear_error(self, mock_spi):
         as5048 = AS5048A(mock_spi)
         # Normal behaviour without error
@@ -154,7 +155,7 @@ class TestAS5048A(TestCase):
         self.assertFalse(as5048.is_error)
         self.assertFalse(as5048.is_parity_mismatch)
 
-    @mock.patch('rotary_sensor_spi.scripts.as5048a.SPI')
+    @mock.patch('rotary_sensor_spi.as5048a.SPI')
     def test_read_angle(self, mock_spi):
         mock_spi.transfer.return_value = [0x00, 0x00]
         as5048 = AS5048A(mock_spi)
@@ -166,7 +167,7 @@ class TestAS5048A(TestCase):
         angle = as5048.read_angle()
         self.assertAlmostEqual(angle, 6, delta=0.3)
 
-    @mock.patch('rotary_sensor_spi.scripts.as5048a.SPI')
+    @mock.patch('rotary_sensor_spi.as5048a.SPI')
     def test_write_zero_position(self, mock_spi):
         mock_spi.transfer.side_effect = [[0, 0], [0, 3],  # read angle
                                           [0, 0], [0, 0],  # read pos high
@@ -180,7 +181,7 @@ class TestAS5048A(TestCase):
         self.assertFalse(as5048.is_error)
         self.assertFalse(as5048.is_parity_mismatch)
 
-    @mock.patch('rotary_sensor_spi.scripts.as5048a.SPI')
+    @mock.patch('rotary_sensor_spi.as5048a.SPI')
     def test_read_diagnostics(self, mock_spi):
         mock_spi.transfer.return_value = [0b1010, 0b10011010]
         as5048 = AS5048A(mock_spi)
@@ -190,7 +191,7 @@ class TestAS5048A(TestCase):
         self.assertFalse(as5048.is_error)
         self.assertFalse(as5048.is_parity_mismatch)
 
-    @mock.patch('rotary_sensor_spi.scripts.as5048a.SPI')
+    @mock.patch('rotary_sensor_spi.as5048a.SPI')
     def test_read_cordic_magnitude(self, mock_spi):
         mock_spi.transfer.return_value = [0x00, 0x00]
         as5048 = AS5048A(mock_spi)
@@ -203,4 +204,5 @@ class TestAS5048A(TestCase):
         self.assertEqual(magnitude, 0x3fff)
 
 if __name__ == "__main__":
-    main()
+    import rosunit
+    rosunit.unitrun(PKG, NAME, TestAS5048A)
