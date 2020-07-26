@@ -2,7 +2,7 @@
 from as5048a import AS5048A
 from periphery import SPI
 import rospy
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Int16
 from std_srvs.srv import Trigger, TriggerResponse
 import threading
 
@@ -70,15 +70,23 @@ def handle_read_diagnostics(req):
 
 if __name__ == "__main__":
     lock = threading.Lock()
+    rospy.init_node('as5048', anonymous=False)
 
-    spi = SPI("/dev/spidev0.0", 1, 1000000)
+    # Parameters
+    device = rospy.get_param('~spi/device', '/dev/spidev0.0')
+    mode = rospy.get_param('~spi/mode', 1)
+    max_hz = rospy.get_param('~spi/max_speed', 1000000)
+    queue_size = rospy.get_param('~publisher_queue_size', 10)
+    rate = rospy.get_param('~rate')
+
+    spi = SPI(device, mode, max_hz)
     as5048a = AS5048A(spi)
     # Setup ROS
-    rospy.init_node('as5048a', anonymous=False)
-    pub = rospy.Publisher('angle', Float32, queue_size=10)
+    pub_angle = rospy.Publisher('angle_rad', Float32, queue_size=queue_size)
+    pub_mag = rospy.Publisher('magnitude_raw', Int16, queue_size=queue_size)
     s1 = rospy.Service('windvane_write_zero_position', Trigger, handle_write_zero_position)
     s2 = rospy.Service('windvane_read_diagnostics', Trigger, handle_read_diagnostics)
-    rate = rospy.Rate(10)  # 10Hz
+    rate = rospy.Rate(rate)  # 10Hz
 
     errors = as5048a.clear_error()
     if any(errors.values()):
