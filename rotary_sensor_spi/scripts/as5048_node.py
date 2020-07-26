@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-from as5048a import AS5048A
+from rotary_sensor_spi.as5048a import AS5048A
 from periphery import SPI
 import rospy
 from std_msgs.msg import Float32, Int16
 from std_srvs.srv import Trigger, TriggerResponse
+from unittest.mock import create_autospec
 import threading
 
 
@@ -78,8 +79,13 @@ if __name__ == "__main__":
     max_hz = rospy.get_param('~spi/max_speed', 1000000)
     queue_size = rospy.get_param('~publisher_queue_size', 10)
     rate = rospy.get_param('~rate')
+    create_mock = rospy.get_param('~create_mock', False)
 
-    spi = SPI(device, mode, max_hz)
+    if create_mock:
+        spi = create_autospec(SPI)
+        spi.transfer.return_value = [0, 0]
+    else:
+        spi = SPI(device, mode, max_hz)
     as5048a = AS5048A(spi)
     # Setup ROS
     pub_angle = rospy.Publisher('angle_rad', Float32, queue_size=queue_size)
@@ -88,14 +94,16 @@ if __name__ == "__main__":
     s2 = rospy.Service('windvane_read_diagnostics', Trigger, handle_read_diagnostics)
     rate = rospy.Rate(rate)  # 10Hz
 
-    errors = as5048a.clear_error()
+    errors = as5048a.clear_and_get_error()
     if any(errors.values()):
         rospy.loginfo('Clear Error; Parity Error {parity_error}, Command Invalid {command_invalid}, Framing Error {framing_error}'.format(**errors))
 
     while not rospy.is_shutdown():
         lock.acquire()
         angle = as5048a.read_angle()
-        pub.publish(angle)
+        magnitude = as5048a.read_cordic_magnitude()
+        pub_angle.publish(angle)
+        pub_mag.publish(magnitude)
         lock.release()
         rospy.loginfo('Angle (rad): {}'.format(angle))
 
