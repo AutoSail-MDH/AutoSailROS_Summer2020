@@ -163,6 +163,9 @@ include_directories(
 catkin_install_python(PROGRAMS
   scripts/service_read_diagnostics.py
   scripts/service_write_zero_position.py
+  scripts/as5048_node.py
+  test/test_as5048.py
+  test/test_as5048_service.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
