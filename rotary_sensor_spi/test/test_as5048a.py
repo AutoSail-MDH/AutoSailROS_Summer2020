@@ -190,6 +190,17 @@ class TestAS5048A(TestCase):
         self.assertFalse(as5048.is_error)
         self.assertFalse(as5048.is_parity_mismatch)
 
+    @mock.patch('rotary_sensor_spi.scripts.as5048a.SPI')
+    def test_read_cordic_magnitude(self, mock_spi):
+        mock_spi.transfer.return_value = [0x00, 0x00]
+        as5048 = AS5048A(mock_spi)
+        magnitude = as5048.read_cordic_magnitude()
+        mock_spi.transfer.assert_has_calls([call([0x7f, 0xfe]), call([0xc0, 0x00])])
+        self.assertEqual(magnitude, 0)
+
+        mock_spi.transfer.return_value = [0x3f, 0xff]
+        magnitude = as5048.read_cordic_magnitude()
+        self.assertEqual(magnitude, 0x3fff)
 
 if __name__ == "__main__":
     main()
