@@ -7,6 +7,7 @@ import math
 
 class AS5048A:
 
+    CMD_READ = 0x4000
     ADDR_NOP = 0x0000
     ADDR_ANGLE = 0x3FFF
     ADDR_CLEAR_ERROR_FLAG = 0x0001
@@ -115,10 +116,9 @@ class AS5048A:
         :return: The 14bit data value from the response
         :rtype: 14bit Int
         """
-        addr |= 0x4000  # Apply read bit to address
         # Transfer the read address and then a NOP to get the result of the previous read.
-        self.transfer(addr)
-        result = self.transfer(self.ADDR_NOP)
+        self.transfer(addr | self.CMD_READ) # Apply read bit before transfer
+        result = self.transfer(self.ADDR_NOP | self.CMD_READ)
         return result
 
     def write(self, addr, data):
@@ -136,7 +136,7 @@ class AS5048A:
         self.transfer(addr)
         # First transfer will return the old register, and the second the new register
         old_register = self.transfer(data)
-        new_register = self.transfer(self.ADDR_NOP)
+        new_register = self.transfer(self.ADDR_NOP | self.CMD_READ)
         return {'old_register': old_register, 'new_register': new_register}
 
     def read_angle(self):
