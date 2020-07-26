@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from rotary_sensor_spi.as5048a import AS5048A
+from rotary_sensor_spi.as5048 import AS5048
 from periphery import SPI
 import rospy
 from std_msgs.msg import Float32, Int16
@@ -30,8 +30,8 @@ def handle_write_zero_position(req):
         message = "Failed to write zero position, the received package has a mismatched parity"
         return TriggerResponse(False, message)
     lock.release()
-    old = AS5048A.calc_angle(response['old_zero_position'])
-    new = AS5048A.calc_angle(response['new_zero_position'])
+    old = AS5048.calc_angle(response['old_zero_position'])
+    new = AS5048.calc_angle(response['new_zero_position'])
     message = """Successfully wrote a new zero position
     Old Zero Position: {} rad
     New Zero Position: {} rad""".format(old, new)
@@ -86,7 +86,7 @@ if __name__ == "__main__":
         spi.transfer.return_value = [0, 0]
     else:
         spi = SPI(device, mode, max_hz)
-    as5048a = AS5048A(spi)
+    as5048a = AS5048(spi)
     # Setup ROS
     pub_angle = rospy.Publisher('angle_rad', Float32, queue_size=queue_size)
     pub_mag = rospy.Publisher('magnitude_raw', Int16, queue_size=queue_size)

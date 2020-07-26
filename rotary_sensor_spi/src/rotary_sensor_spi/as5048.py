@@ -5,7 +5,7 @@ import rospy
 import math
 
 
-class AS5048A:
+class AS5048:
 
     CMD_READ = 0x4000
     ADDR_NOP = 0x0000
@@ -39,7 +39,7 @@ class AS5048A:
         :rtype: Boolean
         """
         given_parity = response >> 15
-        real_parity = AS5048A.calc_even_parity(response & 0x7fff)
+        real_parity = AS5048.calc_even_parity(response & 0x7fff)
         return given_parity != real_parity
 
     @staticmethod
