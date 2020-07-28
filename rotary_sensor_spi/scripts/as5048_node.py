@@ -69,6 +69,20 @@ def handle_read_diagnostics(req):
     return TriggerResponse(True, message)
 
 
+def check_and_print_error(is_error, is_parity_mismatch):
+    errors = as5048a.clear_and_get_error()
+    if as5048a.is_parity_mismatch:
+        rospy.logerr('Received a broken package.')
+        return True
+    if as5048a.is_error:
+        rospy.logerr("""Received a packet with error bit set, following errors are cleared;
+                    parity error: {parity_error}
+                    command invalid: {command_invalid}
+                    framing error: {framing_error}""".format(**errors))
+        return True
+    return False
+
+
 if __name__ == "__main__":
     lock = threading.Lock()
     rospy.init_node('as5048', anonymous=False)
@@ -101,7 +115,27 @@ if __name__ == "__main__":
     while not rospy.is_shutdown():
         lock.acquire()
         angle = as5048a.read_angle()
+        if check_and_print_error(as5048a.is_error, as5048a.is_parity_mismatch):
+            rospy.loginfo('Retrying to get angle package...')
+            angle = as5048a.read_angle()
+            if check_and_print_error(as5048a.is_error, as5048a.is_parity_mismatch):
+                reason = 'Could not correct package problem'
+                rospy.logfatal(reason)
+                rospy.signal_shutdown(reason)
+                exit()
+            # TODO: Better error handling
+
         magnitude = as5048a.read_cordic_magnitude()
+        if check_and_print_error(as5048a.is_error, as5048a.is_parity_mismatch):
+            rospy.loginfo('Retrying to get magnitude package...')
+            magnitude = as5048a.read_cordic_magnitude()
+            if check_and_print_error(as5048a.is_error, as5048a.is_parity_mismatch):
+                reason = 'Could not correct package problem'
+                rospy.logfatal(reason)
+                rospy.signal_shutdown(reason)
+                exit()
+            # TODO: Better error handling
+
         pub_angle.publish(angle)
         pub_mag.publish(magnitude)
         lock.release()
