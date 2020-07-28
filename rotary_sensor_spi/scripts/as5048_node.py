@@ -70,6 +70,16 @@ def handle_read_diagnostics(req):
 
 
 def check_and_print_error(is_error, is_parity_mismatch):
+    '''
+    Checks if an error has occoured and prints a message
+
+    :param is_error: A boolean if an error has occoured
+    :type is_error: Boolean
+    :param is_parity_mismatch: A boolean if an parity mismatch has happend on our end
+    :type is_parity_mismatch: Boolean
+    :return: True if an error is set, else false
+    :rtype: Boolean
+    '''
     errors = as5048a.clear_and_get_error()
     if as5048a.is_parity_mismatch:
         rospy.logerr('Received a broken package.')
@@ -84,10 +94,10 @@ def check_and_print_error(is_error, is_parity_mismatch):
 
 
 if __name__ == "__main__":
-    lock = threading.Lock()
+    lock = threading.Lock()  # Create thread lock to avoid race conditions
     rospy.init_node('as5048', anonymous=False)
 
-    # Parameters
+    # Get parameters
     device = rospy.get_param('~spi/device', '/dev/spidev0.0')
     mode = rospy.get_param('~spi/mode', 1)
     max_hz = rospy.get_param('~spi/max_speed', 1000000)
@@ -95,23 +105,27 @@ if __name__ == "__main__":
     rate = rospy.get_param('~rate')
     create_mock = rospy.get_param('~create_mock', False)
 
+    # Check if the mock parameter is set to run without a sensor
     if create_mock:
         spi = create_autospec(SPI)
         spi.transfer.return_value = [0, 0]
     else:
         spi = SPI(device, mode, max_hz)
     as5048a = AS5048(spi)
-    # Setup ROS
+    # Setup publishers
     pub_angle = rospy.Publisher('angle_rad', Float32, queue_size=queue_size)
     pub_mag = rospy.Publisher('magnitude_raw', Int16, queue_size=queue_size)
+    # Setup services
     s1 = rospy.Service('windvane_write_zero_position', Trigger, handle_write_zero_position)
     s2 = rospy.Service('windvane_read_diagnostics', Trigger, handle_read_diagnostics)
-    rate = rospy.Rate(rate)  # 10Hz
-
+    # Apply node rate
+    rate = rospy.Rate(rate)
+    # Clear existing errors
     errors = as5048a.clear_and_get_error()
     if any(errors.values()):
         rospy.loginfo('Clear Error; Parity Error {parity_error}, Command Invalid {command_invalid}, Framing Error {framing_error}'.format(**errors))
 
+    # Run main loop
     while not rospy.is_shutdown():
         lock.acquire()
         angle = as5048a.read_angle()
@@ -136,6 +150,7 @@ if __name__ == "__main__":
                 exit()
             # TODO: Better error handling
 
+        # Publish values and release
         pub_angle.publish(angle)
         pub_mag.publish(magnitude)
         lock.release()
